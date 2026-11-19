@@ -33,6 +33,16 @@ python3 tools/probe_signals.py --local 169.254.10.2 --gateway 169.254.10.3 --ecu
 
 On Windows use `py -3` if Python is installed with the launcher. The probe allows only explicit `01` and `22` reads, targets DME or EGS, and bounds and spaces its requests. Keep address, request, complete response, test conditions, and the independent reading for each candidate.
 
+### When only the head unit is reachable
+
+On some cars nothing answers the HSFZ identification broadcast from the ENET computer, and the head unit's own diagnostic address answers only for itself (ECU `63`), so the laptop probe cannot reach the DME. If the gauges work over the [MOST fallback](MOST.md), use the head-unit probe instead. Build it with `native/build.sh`, copy `out/diag-probe-qnx` to a temporary directory on the head unit, make it executable, and run it over SSH while parked:
+
+```sh
+LD_LIBRARY_PATH=/lib:/usr/lib:/boot/lib:/opt/sys/lib /tmp/diag-probe-qnx --transport most 224300 0105 0123
+```
+
+It accepts only OBD `01 xx` and UDS `22 xx xx` reads, at most 24 per run, addresses only the DME (`12`), the one ECU the tunnel reaches, and prints each raw reply or refusal code. It shares the diagnostics lease with the gauge workers, so exit BoostDeck and ShiftDeck first. Remove the probe from the head unit afterwards.
+
 | Observation | Next check |
 | --- | --- |
 | RPM and other reads time out | Verify the direct ENET adapter and gateway, ignition, and diagnostic contention. |

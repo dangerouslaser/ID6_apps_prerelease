@@ -274,5 +274,100 @@ class EngineCodesTest(unittest.TestCase):
         self.assertNotIn("FAKE-MOST bind", r.stderr)
 
 
+class ProbeTest(unittest.TestCase):
+    """diag-probe: read-only DME discovery, including over the MOST tunnel."""
+
+    def test_most_replies_refusals_in_order(self):
+        r = run("diag-probe", ["--transport", "most", "224201", "224300", "22ABCD", "010C", "0105"], "up")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout,
+                         "DME 12 via MOST\n"
+                         "224201 -> 62 42 01 63 CA\n"
+                         "224300 -> 62 43 00 0B F8\n"
+                         "22ABCD -> refused, NRC 31\n"
+                         "010C -> 41 0C 1A F8\n"
+                         "0105 -> refused, NRC 11\n")
+        self.assertIn("FAKE-MOST exit unregister_target=1 unregister_client=1 free=1", r.stderr)
+
+    def test_lowercase_requests(self):
+        r = run("diag-probe", ["--transport", "most", "22580f", "010c"], "up")
+        self.assertEqual(r.stdout, "DME 12 via MOST\n22580F -> 62 58 0F 82\n010C -> 41 0C 1A F8\n")
+
+    def test_rejects_anything_but_reads_before_connecting(self):
+        for bad in ["2E5FFD00", "2F60FD00", "1902AF", "14FFFFFF", "1003", "3101", "23140000", "2C0288",
+                    "22F1", "01", "0105AA", "22430", "0G05", "", "--codes"]:
+            with self.subTest(request=bad):
+                r = run("diag-probe", ["--transport", "most", "224201", bad], "up")
+                self.assertEqual(r.returncode, 2)
+                self.assertEqual(r.stdout, "")
+                self.assertNotIn("FAKE-MOST bind", r.stderr)
+
+    def test_needs_a_request_and_caps_the_count(self):
+        self.assertEqual(run("diag-probe", ["--transport", "most"], "up").returncode, 2)
+        many = ["224201"] * 24
+        r = run("diag-probe", ["--transport", "most", *many], "up", timeout=30)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout.count("224201 -> 62 42 01 63 CA\n"), 24)
+        r = run("diag-probe", ["--transport", "most", *many, "224201"], "up")
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("FAKE-MOST bind", r.stderr)
+
+    def test_hsfz_needs_host(self):
+        r = run("diag-probe", ["--transport", "hsfz", "224201"], "up")
+        self.assertEqual(r.returncode, 2)
+
+    def test_link_lost_stops(self):
+        r = run("diag-probe", ["--transport", "most", "224201", "224205", "225889", "224A49",
+                               "22580F", "22586F"], "drop")
+        self.assertEqual(r.returncode, 0)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[0], "DME 12 via MOST")
+        self.assertEqual(len(lines), 6)
+        self.assertEqual(lines[-1], "22580F -> link lost")
+
+    def test_no_library(self):
+        r = run("diag-probe", ["--transport", "most", "224201"])
+        self.assertEqual(r.stdout, "Diagnostic gateway unavailable\n")
+
+    def test_busy(self):
+        thread = hold_lease(3)
+        try:
+            r = run("diag-probe", ["--transport", "most", "224201"], "up")
+        finally:
+            thread.join()
+        self.assertEqual(r.stdout, BUSY)
+
+    def test_hsfz_one_connection(self):
+        errors = []
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(3)
+
+            def gateway():
+                try:
+                    conn, _ = listener.accept()
+                    with conn:
+                        conn.settimeout(3)
+                        for request, reply in (("f412224300", "12f4624300cb"), ("f4120105", "12f47f0112")):
+                            size, control = struct.unpack(">IH", exact(conn, 6))
+                            self.assertEqual(control, 1)
+                            self.assertEqual(exact(conn, size), bytes.fromhex(request))
+                            conn.sendall(frame(1, bytes.fromhex(reply)))
+                        self.assertEqual(conn.recv(1), b"")
+                except Exception as error:
+                    errors.append(error)
+
+            thread = threading.Thread(target=gateway)
+            thread.start()
+            r = run("diag-probe", ["--host", "127.0.0.1", "--port", str(listener.getsockname()[1]),
+                                   "--transport", "hsfz", "224300", "0105"], "up")
+            thread.join(4)
+        if errors:
+            raise errors[0]
+        self.assertEqual(r.stdout, "DME 12 via HSFZ\n224300 -> 62 43 00 CB\n0105 -> refused, NRC 12\n")
+        self.assertNotIn("FAKE-MOST bind", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ On some cars the head unit has no route to the HSFZ diagnostic gateway. Without 
 | ShiftDeck (`shift-deck-qnx`) | `shiftdeck` |
 | MHD Maps (`mhd-maps-qnx`) | `mhdmaps` |
 | Engine codes (`engine-codes-qnx`) | `enginecodes` |
+| Signal probe (`diag-probe-qnx`) | `probe` |
 
 Bootmod3 (`bootmod3-qnx`) and xDrive (`xdrive-control-qnx`) stay on HSFZ. They write to the DME and DSC, and read ECUs never seen through the tunnel.
 

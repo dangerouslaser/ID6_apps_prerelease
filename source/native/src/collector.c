@@ -193,6 +193,86 @@ int main(int argc, char **argv) {
     diag_link_close(&link);
     return 0;
 }
+#elif defined(PROBE_ONLY)
+/* Read-only signal discovery for the DME over the shared link, including the MOST tunnel, which the
+ * laptop probe (tools/probe_signals.py) cannot reach. Only OBD 01 <PID> and UDS 22 <DID> are accepted. */
+enum { PROBE_MAX = 24, PROBE_GAP_MS = 100, PROBE_TIMEOUT_MS = 1000 };
+
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* "010C" or "224300": the request bytes and their count; 0 for anything else. */
+static unsigned parse_read(const char *s, unsigned char *out) {
+    size_t n = strlen(s), i;
+    if (n != 4 && n != 6) return 0;
+    for (i = 0; i < n; i += 2) {
+        int hi = hex_digit(s[i]), lo = hex_digit(s[i+1]);
+        if (hi < 0 || lo < 0) return 0;
+        out[i/2] = (unsigned char)(hi << 4 | lo);
+    }
+    if (!((n == 4 && out[0] == 0x01) || (n == 6 && out[0] == 0x22))) return 0;
+    return (unsigned)(n / 2);
+}
+
+int main(int argc, char **argv) {
+    unsigned char requests[PROBE_MAX][3];
+    unsigned sizes[PROBE_MAX], count = 0, port = 6801, k;
+    const char *host = 0;
+    int transport = DIAG_AUTO, i;
+    struct diag_link link;
+    struct diag_link_cfg cfg;
+    for (i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--host") && i+1 < argc && !host) host = argv[++i];
+        else if (!strcmp(argv[i], "--port") && i+1 < argc) port = number(argv[++i], 1, 65535);
+        else if (!strcmp(argv[i], "--transport") && i+1 < argc && !strcmp(argv[i+1], "auto")) ++i;
+        else if (!strcmp(argv[i], "--transport") && i+1 < argc && !strcmp(argv[i+1], "hsfz")) { transport = DIAG_HSFZ; ++i; }
+        else if (!strcmp(argv[i], "--transport") && i+1 < argc && !strcmp(argv[i+1], "most")) { transport = DIAG_MOST; ++i; }
+        else if (count < PROBE_MAX && (sizes[count] = parse_read(argv[i], requests[count])) != 0) ++count;
+        else break;
+    }
+    if (i != argc || !count || (transport == DIAG_HSFZ && !host)) {
+        fprintf(stderr, "Usage: %s [--host IPv4] [--transport auto|hsfz|most] [--port 6801] "
+                "READ... (DME only; 01xx or 22xxxx, at most %d)\n", argv[0], PROBE_MAX);
+        return 2;
+    }
+    diag_link_signals();
+    memset(&cfg, 0, sizeof cfg);
+    cfg.host = host; cfg.port = port; cfg.transport = transport; cfg.kind = DIAG_ONESHOT; cfg.dsi_name = "probe";
+    diag_link_init(&link, &cfg);
+    if (!diag_link_reserve_oneshot(&link)) { puts("Diagnostics busy. Wait a moment and try again."); return 0; }
+    if (!diag_link_up(&link)) {
+        puts("Diagnostic gateway unavailable");
+        diag_link_close(&link);
+        return 0;
+    }
+    printf("DME 12 via %s\n", diag_link_on_most(&link) ? "MOST" : "HSFZ");
+    for (k = 0; k < count && diag_running; ++k) {
+        unsigned char prefix[3], reply[256];
+        unsigned negative, j;
+        int n;
+        memcpy(prefix, requests[k], sizes[k]);
+        prefix[0] = (unsigned char)(requests[k][0] + 0x40);
+        n = diag_link_request(&link, 0x12, requests[k], sizes[k], prefix, sizes[k], reply, sizeof reply,
+                              PROBE_TIMEOUT_MS, &negative);
+        for (j = 0; j < sizes[k]; ++j) printf("%02X", requests[k][j]);
+        if (n > 0) {
+            printf(" ->");
+            for (j = 0; j < (unsigned)n; ++j) printf(" %02X", reply[j]);
+            putchar('\n');
+        } else if (n == -2) printf(" -> refused, NRC %02X\n", negative);
+        else if (n == -1 && diag_link_lost(&link)) { puts(" -> link lost"); break; }
+        else puts(" -> no reply");
+        fflush(stdout);
+        if (n == -1 && !diag_link_on_most(&link)) break;
+        if (k+1 < count) poll(0, 0, PROBE_GAP_MS);
+    }
+    diag_link_close(&link);
+    return 0;
+}
 #elif defined(MHD_MAPS_ONLY)
 int main(int argc, char **argv) {
     const char *host=0;

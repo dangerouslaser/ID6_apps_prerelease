@@ -43,6 +43,7 @@ cxx -DPERF_LAB -Isrc -Isdk -O2 -fno-strict-aliasing -fno-exceptions -fPIC -share
     "$frameworks/libAppFramework.A.so" "$frameworks/libCoreFramework.A.so" -Lout -lm -lsocket \
     -Wl,--allow-shlib-undefined -Wl,-soname,libEngineCodes.so -o out/libEngineCodes.so
 worker -DENGINE_CODES_ONLY src/collector.c out/core.o -o out/engine-codes-qnx
+worker -DPROBE_ONLY src/collector.c out/core.o -o out/diag-probe-qnx
 for app in Bootmod3Suite XDriveControl; do
     case "$app" in
         Bootmod3Suite) flag=-DBM3_ONLY; worker=bootmod3-qnx ;;
