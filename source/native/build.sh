@@ -18,8 +18,18 @@ for pair in libm.so:libm.so.2 libsocket.so:libsocket.so.3 libstdc++.so:libstdc++
 done
 ntoarm-gcc -dumpversion
 ntoarm-gcc -dumpmachine
-c() { qcc -V4.4.2,gcc_ntoarmv7le -Wc,-std=c99 -Wall -Wextra -Werror "$@"; }
-cxx() { qcc -V4.4.2,gcc_ntoarmv7le_gpp -lang-c++ -Wc,-std=gnu++98 -Wall -Wextra -Werror "$@"; }
+# QNX_DRIVER=gcc calls the SDP's GCC 4.4.2 for ARMv7 directly instead of through qcc. The driver supplies the
+# same QNX defines, armle-v7 startup files, library paths and loader; qcc only adds its own licence lookup.
+case "${QNX_DRIVER:-qcc}" in
+    qcc)
+        c() { qcc -V4.4.2,gcc_ntoarmv7le -Wc,-std=c99 -Wall -Wextra -Werror "$@"; }
+        cxx() { qcc -V4.4.2,gcc_ntoarmv7le_gpp -lang-c++ -Wc,-std=gnu++98 -Wall -Wextra -Werror "$@"; } ;;
+    gcc)
+        test "$(ntoarmv7-gcc -dumpversion)" = 4.4.2 || { echo "ntoarmv7-gcc is not GCC 4.4.2" >&2; exit 1; }
+        c() { ntoarmv7-gcc -std=c99 -Wall -Wextra -Werror "$@"; }
+        cxx() { ntoarmv7-g++ -std=gnu++98 -Wall -Wextra -Werror "$@"; } ;;
+    *) echo "QNX_DRIVER must be qcc or gcc" >&2; exit 1 ;;
+esac
 c -DPERF_LAB -Isrc -O2 -fPIC -c src/gauge_core.c -o out/core.o
 cxx -DPERF_LAB -Isrc -Isdk -O2 -fno-strict-aliasing -fno-exceptions -fPIC -shared src/plugin.cpp out/core.o \
     "$frameworks/libAppFramework.A.so" "$frameworks/libCoreFramework.A.so" -Lout -lm -lsocket \

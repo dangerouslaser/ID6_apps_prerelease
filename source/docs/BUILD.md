@@ -11,7 +11,7 @@ python3 tools/test_probe_signals.py
 
 If you need the toolchain for a native build, the [QNX SDP 6.5 archive](https://archive.org/details/qnxsdp-65.7z) includes the SDK and a license key generator, according to the archive listing.
 
-1. Prepare a licensed QNX SDP 6.5 Linux x86 toolchain with ARM GCC 4.4.2. Set `QNX_HOST`, `QNX_TARGET`, and `QNX_CONFIGURATION` if your installation differs from the paths in `native/build.sh`.
+1. Prepare a licensed QNX SDP 6.5 Linux x86 toolchain with ARM GCC 4.4.2. Set `QNX_HOST`, `QNX_TARGET`, and `QNX_CONFIGURATION` if your installation differs from the paths in `native/build.sh`. The script compiles through `qcc` by default. With `QNX_DRIVER=gcc` it calls `ntoarmv7-gcc` and `ntoarmv7-g++` directly. Use this when your licence terms allow it and your `qcc` cannot use them, for example an install without the ARMv7 `qcc` profiles. The script checks that the compiler is GCC 4.4.2.
 
 ```sh
 mkdir -p native/frameworks
